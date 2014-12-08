@@ -76,7 +76,7 @@ describe GtfsToJson::Routes do
     it "should have one bus" do
       get '/05/buses'
       routes = JSON.parse( last_response.body )
-      expect( routes[0]['buses'].length ).to eq( 2 )
+      expect( routes[0]['buses'].length ).to eq( 1 )
     end
 
     it "should have the proper data" do

@@ -22,6 +22,7 @@ desc "Import all GTFS data"
 task :import_gtfs do
   puts "Destroying..."
   Route.all.destroy
+  Stop.all.destroy
 
   puts "Importing..."
   is_first_line = true
@@ -30,6 +31,7 @@ task :import_gtfs do
       is_first_line = false
       next
     end
+
     r = Route.new
     r.route_id = row[5]
     r.route_number = row[8]
@@ -39,26 +41,32 @@ task :import_gtfs do
     puts "Importing #{r.route_name} -> #{r.route_id}"
     r.save
   end
+
+  is_first_line = true
+  CSV.foreach( File.expand_path(File.dirname(__FILE__) + '/gtfs/stops.txt') ) do |row|
+    if is_first_line
+      is_first_line = false
+      next
+    end
+
+    s = Stop.new
+    s.stop_id = row[4]
+    s.lat = row[0].to_f
+    s.lon = row[3].to_f
+    s.stop_code = row[2]
+    s.stop_desc = row[7]
+    s.stop_name = row[8]
+    puts "Importing #{s.stop_id} -> #{s.stop_desc}"
+    s.save
+  end
 end
 
-# task :download_trip_updates do
-#   url = 'http://opendata.hamilton.ca/GTFS-RT/GTFS_TripUpdates.pb'
-#   # while true
-#     puts 'Downloading...'
-#     data = FeedMessage.decode( open(url).read )
-#     puts 'Downloaded...'
-#     data['entity'].each do |trip|
-#       next if trip.nil? or trip['trip_update'].nil? or trip['trip_update']['trip'].nil?
-#     end
-#   # end
-# end
-# 
 task :download_buses do
   url = 'http://opendata.hamilton.ca/GTFS-RT/GTFS_VehiclePositions.pb'
   # while true
-    puts 'Downloading...'
+    puts 'Downloading vehicle positions...'
     data = FeedMessage.decode( open(url).read )
-    puts 'Downloaded...'
+    puts 'Vehicle positions downloaded.'
 
     data.entity.each do |entity|
       next if entity.nil? or entity['vehicle'].nil?
@@ -84,43 +92,51 @@ task :download_buses do
   # end
 end
 
-# task :bus_time do
-#   url = 'http://opendata.hamilton.ca/GTFS-RT/GTFS_VehiclePositions.pb'
-#   buses = Hash.new
+task :bus_time do
+  url = 'http://opendata.hamilton.ca/GTFS-RT/GTFS_TripUpdates.pb'
 #   while true
-#     puts 'Downloading...'
-#     data = FeedMessage.decode( open(url).read )
+    puts 'Downloading trip updates...'
+    data = FeedMessage.decode( open(url).read )
+    puts 'Trip updates downloaded.'
 
-#     data.entity.each do |entity|
-#       next if entity.nil? or entity['vehicle'].nil?
-#       vehicle_position = entity['vehicle']
-#       vehicle  = vehicle_position['vehicle']
-#       position = vehicle_position['position']
+    data.entity.each do |entity|
+      next if entity.nil?
 
-#       if buses[ vehicle['label'] ]
-#         if buses[ vehicle['label'] ][:lat] == position['latitude'] and buses[ vehicle['label'] ][:lng] == position['longitude']
-#           # puts 'It\'s the same'
-#         else
-#           puts Time.now - buses[ vehicle['label'] ][:time]
-#           buses[ vehicle['label'] ] = { 
-#             :lat => position['latitude'],
-#             :lng => position['longitude'],
-#             :time => Time.now
-#           }
-#         end
-#       # end
-#       else
-#         # puts 'no it doesn\'t'
-#         buses[ vehicle['label'] ] = { 
-#           :lat => position['latitude'],
-#           :lng => position['longitude'],
-#           :time => Time.now
-#         }
-#       end
-#     end
-#     sleep 1
-#   end
-# end
+      trip    = entity['trip_update']['trip']
+      vehicle = entity['trip_update']['vehicle']
+      updates = entity['trip_update']['stop_time_update']
+
+      next if trip.nil? or vehicle.nil? or updates.nil?
+
+      # Trip info
+      trip_id  = trip['trip_id']
+      route_id = trip['route_id']
+
+      # Vehicle info
+      bus_number = vehicle['label']
+
+      updates.each do |update|
+        # Currently arrival and departure times always seem to be the same.
+        # So we'll just use arrival
+        next if update['arrival'].nil?
+
+        stop_id       = update['stop_id']
+        status        = update['schedule_relationship']
+        arrival_time  = update['arrival']['time']
+        arrival_delay = update['arrival']
+
+        trip_update = TripUpdate.first_or_create( :trip_id => trip_id, :stop_id => stop_id )
+        trip_update.route_id      = route_id
+        trip_update.bus_number    = bus_number
+        trip_update.status        = status
+        trip_update.arrival_time  = arrival_time
+        trip_update.arrival_delay = arrival_delay
+
+        trip_update.save
+      end
+    end
+  # end
+end
 
 desc "Show help menu"
 task :help do
